@@ -348,7 +348,6 @@ DMA_HandleTypeDef hdma_spi2_tx;
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim4;
-TIM_HandleTypeDef htim6;
 TIM_HandleTypeDef htim7;
 TIM_HandleTypeDef htim8;
 TIM_HandleTypeDef htim16;
@@ -376,7 +375,6 @@ static void MX_I2C1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM7_Init(void);
 static void MX_TIM8_Init(void);
-static void MX_TIM6_Init(void);
 static void MX_TIM16_Init(void);
 static void MX_TIM17_Init(void);
 /* USER CODE BEGIN PFP */
@@ -573,11 +571,18 @@ void update_heater_PWM(){
     float duty_cycle = sensor_values.requested_power * current;
 
     duty_cycle = clamp(duty_cycle, 0.0f, PID_MAX_OUTPUT);
-    set_heater_duty(duty_cycle);
+
+    TIM1->CR1 &= ~TIM_CR1_CEN;            /* stop in case still running */
+    set_heater_duty((uint16_t)duty_cycle);
+    TIM1->CNT = 0;
+    TIM1->RCR = 479;                      /* reload repetition counter */
+    TIM1->EGR |= TIM_EGR_UG;              /* apply preloaded CCR immediately */
+    TIM1->CR1 |= TIM_CR1_CEN;             /* fire next 24ms heating window */
 }
 
 /* Disable the duty cycle of timer controlling the heater PWM*/
 void heater_off(){
+	TIM1->CR1 &= ~TIM_CR1_CEN;     /* stop OPM counter immediately */
 	set_heater_duty(0);
 }
 
@@ -1521,10 +1526,10 @@ void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim){
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim){
-	/* Take thermocouple measurement every 25 ms */
-	if (htim == &htim6){
+	/* TIM1 OPM finished its 24ms heating window → trigger TC measurement chain */
+	if (htim == &htim1){
 		thermocouple_measurement_done = 0;
-		heater_off();
+		/* heater is already OFF: TIM1 stopped itself, output low at end of OPM cycle */
 		__HAL_TIM_ENABLE(&htim7);
 	}
 
@@ -1678,7 +1683,6 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM7_Init();
   MX_TIM8_Init();
-  MX_TIM6_Init();
   MX_TIM16_Init();
   MX_TIM17_Init();
   /* USER CODE BEGIN 2 */
@@ -1689,7 +1693,8 @@ int main(void)
 	HAL_TIM_Encoder_Start_IT(&htim2, TIM_CHANNEL_ALL);
 	HAL_TIM_PWM_Start_IT(&htim1, TIM_CHANNEL_1);
 	__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_2, 50); //Set BUZZER duty to 50%
-	HAL_TIM_Base_Start_IT(&htim6);
+	/* TIM1 already started above (HAL_TIMEx_PWMN_Start_IT) — first OPM cycle bootstraps the chain:
+	 *   TIM1 update → TIM7 → ADC1 → update_heater_PWM() → TIM1 again */
 
 	__HAL_TIM_ENABLE_IT(&htim7, TIM_IT_UPDATE);
 
@@ -1953,7 +1958,12 @@ int main(void)
 
 					set_heater_duty(FIXED_MEASURE_DUTY);
 					// Force the timer to update immediately so that the new value takes effect immediately
-					htim1.Instance->EGR |= TIM_EGR_UG;  // Apply duty cycle immediately
+					TIM1->EGR |= TIM_EGR_UG;            // Apply duty cycle immediately
+					if (!(TIM1->CR1 & TIM_CR1_CEN)) {   // OPM may have stopped TIM1 — restart for measurement
+						TIM1->CNT = 0;
+						TIM1->RCR = 479;
+						TIM1->CR1 |= TIM_CR1_CEN;
+					}
 
 					current_measurement_done = 0;
 					current_measurement_requested = 1; // Measurement needs to be performed
@@ -2362,7 +2372,7 @@ static void MX_TIM1_Init(void)
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim1.Init.Period = 500;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-  htim1.Init.RepetitionCounter = 0;
+  htim1.Init.RepetitionCounter = 479;  /* OPM: 480 cycles × 50µs = 24ms heating window */
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
   {
@@ -2408,7 +2418,8 @@ static void MX_TIM1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM1_Init 2 */
-
+  TIM1->CR1 |= TIM_CR1_OPM;                     /* One-Pulse Mode: counter stops after RCR underflow */
+  __HAL_TIM_ENABLE_IT(&htim1, TIM_IT_UPDATE);   /* Update IRQ → drives event chain to TIM7 */
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
 
@@ -2512,44 +2523,6 @@ static void MX_TIM4_Init(void)
 
   /* USER CODE END TIM4_Init 2 */
   HAL_TIM_MspPostInit(&htim4);
-
-}
-
-/**
-  * @brief TIM6 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_TIM6_Init(void)
-{
-
-  /* USER CODE BEGIN TIM6_Init 0 */
-
-  /* USER CODE END TIM6_Init 0 */
-
-  TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM6_Init 1 */
-
-  /* USER CODE END TIM6_Init 1 */
-  htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 17000-1;
-  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = 250;
-  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
-  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN TIM6_Init 2 */
-
-  /* USER CODE END TIM6_Init 2 */
 
 }
 
