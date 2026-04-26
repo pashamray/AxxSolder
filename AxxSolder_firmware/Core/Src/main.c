@@ -73,9 +73,6 @@ uint32_t previous_millis_standby = 0;
 
 uint32_t previous_millis_prestandby = 0;
 
-uint32_t previous_measure_current_update = 0;
-uint32_t interval_measure_current = 250;
-
 uint32_t previous_sensor_update_high_update = 0;
 uint32_t interval_sensor_update_high_update = 10;
 
@@ -563,14 +560,29 @@ void set_heater_duty(uint16_t dutycycle){
 	__HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, (uint16_t)(dutycycle * 0.3f));
 }
 
+/* One full heater cycle is ~25ms; measure current every 10th cycle (~250ms) */
+#define CURRENT_MEASURE_EVERY_N_CYCLES 10
+
 /* Update the duty cycle of timer controlling the heater PWM */
 void update_heater_PWM(){
 	if (sensor_values.bus_voltage <= 0.0f) return;
 
     float current = (sensor_values.max_power_watt * POWER_CONVERSION_FACTOR) / sensor_values.bus_voltage;
-    float duty_cycle = sensor_values.requested_power * current;
+    float duty_cycle = clamp(sensor_values.requested_power * current, 0.0f, PID_MAX_OUTPUT);
 
-    duty_cycle = clamp(duty_cycle, 0.0f, PID_MAX_OUTPUT);
+    /* Periodically replace PID duty with FIXED_MEASURE_DUTY for tip-current sensing.
+     * CH1 PulseFinishedCallback will trigger ADC2 within first PWM period of OPM run. */
+    static uint32_t cycles_since_measure = 0;
+    if (flash_values.current_measurement == 1) {
+        if (++cycles_since_measure >= CURRENT_MEASURE_EVERY_N_CYCLES) {
+            cycles_since_measure = 0;
+            duty_cycle = FIXED_MEASURE_DUTY;
+            current_measurement_done = 0;
+            current_measurement_requested = 1;
+        }
+    } else {
+        sensor_values.heater_current = 1.0f;  /* dummy keeps tip-detection safety happy */
+    }
 
     TIM1->CR1 &= ~TIM_CR1_CEN;            /* stop in case still running */
     set_heater_duty((uint16_t)duty_cycle);
@@ -1949,31 +1961,7 @@ int main(void)
 			}
 		}
 
-		/* Detect if a tip is present by sending a short voltage pulse and sense current */
-		if (flash_values.current_measurement == 1){
-
-			if (HAL_GetTick() - previous_measure_current_update >= interval_measure_current) {
-				// Perform current measurement only if thermocouple measurement is not in progress.
-				if (thermocouple_measurement_done == 1) {
-
-					set_heater_duty(FIXED_MEASURE_DUTY);
-					// Force the timer to update immediately so that the new value takes effect immediately
-					TIM1->EGR |= TIM_EGR_UG;            // Apply duty cycle immediately
-					if (!(TIM1->CR1 & TIM_CR1_CEN)) {   // OPM may have stopped TIM1 — restart for measurement
-						TIM1->CNT = 0;
-						TIM1->RCR = 479;
-						TIM1->CR1 |= TIM_CR1_CEN;
-					}
-
-					current_measurement_done = 0;
-					current_measurement_requested = 1; // Measurement needs to be performed
-					previous_measure_current_update = HAL_GetTick();
-				}
-			}
-		}
-		else{
-			sensor_values.heater_current = 1; // If the current is not measured, apply a dummy value to heater_current
-		}
+		/* Tip-current measurement is now driven from update_heater_PWM() — no main-loop polling */
 
         if(popup_shown == 1){
                 if(HAL_GetTick() - previous_millis_popup >= interval_popup){
