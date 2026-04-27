@@ -584,17 +584,17 @@ void update_heater_PWM(){
         sensor_values.heater_current = 1.0f;  /* dummy keeps tip-detection safety happy */
     }
 
-    TIM1->CR1 &= ~TIM_CR1_CEN;            /* stop in case still running */
+    htim1.Instance->CR1 &= ~TIM_CR1_CEN;                     /* stop in case still running (active PWM CCxE blocks __HAL_TIM_DISABLE) */
     set_heater_duty((uint16_t)duty_cycle);
-    TIM1->CNT = 0;
-    TIM1->RCR = 479;                      /* reload repetition counter */
-    TIM1->EGR |= TIM_EGR_UG;              /* apply preloaded CCR immediately */
-    TIM1->CR1 |= TIM_CR1_CEN;             /* fire next 24ms heating window */
+    __HAL_TIM_SET_COUNTER(&htim1, 0);
+    htim1.Instance->RCR = 479;                               /* reload repetition counter (no HAL macro for RCR) */
+    HAL_TIM_GenerateEvent(&htim1, TIM_EVENTSOURCE_UPDATE);   /* apply preloaded CCR immediately */
+    __HAL_TIM_ENABLE(&htim1);                                /* fire next 24ms heating window */
 }
 
 /* Disable the duty cycle of timer controlling the heater PWM*/
 void heater_off(){
-	TIM1->CR1 &= ~TIM_CR1_CEN;     /* stop OPM counter immediately */
+	htim1.Instance->CR1 &= ~TIM_CR1_CEN;     /* stop OPM counter immediately (see note in update_heater_PWM) */
 	set_heater_duty(0);
 }
 
@@ -2406,8 +2406,8 @@ static void MX_TIM1_Init(void)
     Error_Handler();
   }
   /* USER CODE BEGIN TIM1_Init 2 */
-  TIM1->CR1 |= TIM_CR1_OPM;                     /* One-Pulse Mode: counter stops after RCR underflow */
-  __HAL_TIM_ENABLE_IT(&htim1, TIM_IT_UPDATE);   /* Update IRQ → drives event chain to TIM7 */
+  htim1.Instance->CR1 |= TIM_CR1_OPM;            /* One-Pulse Mode: counter stops after RCR underflow */
+  __HAL_TIM_ENABLE_IT(&htim1, TIM_IT_UPDATE);    /* Update IRQ → drives event chain to TIM7 */
   /* USER CODE END TIM1_Init 2 */
   HAL_TIM_MspPostInit(&htim1);
 
