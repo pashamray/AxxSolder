@@ -45,9 +45,10 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-uint8_t fw_version_major =  3;
-uint8_t fw_version_minor =  7;
-uint8_t fw_version_patch =  0;
+#ifndef FW_VERSION_STR
+#  define FW_VERSION_STR "dev"
+#endif
+const char fw_version[] = FW_VERSION_STR;
 
 //#define PID_TUNING
 DEBUG_VERBOSITY_t debugLevel = DEBUG_INFO;

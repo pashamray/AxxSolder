@@ -140,9 +140,7 @@ extern cartridge_state_t previous_cartridge_state;
 extern uint8_t sleep_state_written_to_LCD;
 extern uint8_t standby_state_written_to_LCD;
 
-extern uint8_t fw_version_major;
-extern uint8_t fw_version_minor;
-extern uint8_t fw_version_patch;
+extern const char fw_version[];
 
 /* Flag to indicate that settings menu is active */
 extern uint8_t settings_menu_active;

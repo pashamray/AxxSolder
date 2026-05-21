@@ -489,11 +489,11 @@ void settings_menu()
     char str[64] = {0};
     if ((flash_values.screen_rotation == 0) || (flash_values.screen_rotation == 2)) {
         menu_lines_on_screen = 10;
-        sprintf(str, "fw mod: %d.%d.%d   hw: %d", fw_version_major, fw_version_minor, fw_version_patch, get_hw_version());
+        sprintf(str, "fw mod: %s   hw: %d", fw_version, get_hw_version());
         LCD_PutStr(6, 296, str, FONT_arial_20X23, C_RED, C_BLACK);
     } else {
         menu_lines_on_screen = 7;
-        sprintf(str, "fw mod: %d.%d.%d   hw: %d", fw_version_major, fw_version_minor, fw_version_patch, get_hw_version());
+        sprintf(str, "fw mod: %s   hw: %d", fw_version, get_hw_version());
         LCD_PutStr(6, 215, str, FONT_arial_20X23, C_RED, C_BLACK);
     }
 

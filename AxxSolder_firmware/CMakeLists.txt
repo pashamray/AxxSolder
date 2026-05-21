@@ -42,6 +42,9 @@ set(LCD_ROTATION   "2"       CACHE STRING "Default LCD rotation 0-3")
 set(STORAGE_PROFILES "FLASH" CACHE STRING "Storage driver for tip profiles: FLASH, EEPROM, SDCARD")
 set(STORAGE_SETTINGS "FLASH" CACHE STRING "Storage driver for settings: FLASH, EEPROM, SDCARD")
 
+# Firmware version — override with -DFW_VERSION=x.y.z (no leading v)
+set(FW_VERSION "dev" CACHE STRING "Firmware version (semver, no v prefix)")
+
 target_compile_definitions(${EXECUTABLE} PRIVATE
     "USE_HAL_DRIVER"
     "STM32G431xx"
@@ -50,6 +53,7 @@ target_compile_definitions(${EXECUTABLE} PRIVATE
     "LCD_ROTATION=${LCD_ROTATION}"
     "STORAGE_PROFILES_${STORAGE_PROFILES}"
     "STORAGE_SETTINGS_${STORAGE_SETTINGS}"
+    "FW_VERSION_STR=\"${FW_VERSION}\""
 )
 
 set(CPU_PARAMETERS ${CPU_PARAMETERS}
