@@ -14,6 +14,15 @@ WORKDIR /app
 
 COPY . .
 
+ARG LCD_CONTROLLER=ST7789
+ARG LCD_SIZE=240X320
+ARG LCD_ROTATION=2
+ARG FW_VERSION=dev
+
 RUN set -eux; \
-    cmake -S . -B build; \
+    cmake -S . -B build \
+        -DLCD_CONTROLLER=${LCD_CONTROLLER} \
+        -DLCD_SIZE=${LCD_SIZE} \
+        -DLCD_ROTATION=${LCD_ROTATION} \
+        -DFW_VERSION=${FW_VERSION}; \
     cmake --build build -j$(nproc);

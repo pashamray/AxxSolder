@@ -3,54 +3,92 @@ name: Build and Release Firmware
 on:
   pull_request:
     branches:
-      - main  # Trigger on PRs to the main branch
+      - main
+  push:
+    tags:
+      - 'v*'
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - { controller: ST7789, size: 240X320 }
+          - { controller: ST7789, size: 240X280 }
+          - { controller: ST7789, size: 240X240 }
+          - { controller: ST7789, size: 135X240 }
+          - { controller: ST7735, size: 160X128 }
+          - { controller: ST7735, size: 128X128 }
+          - { controller: ST7735, size: 160X80  }
+        rotation: [0, 1, 2, 3]
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v6
 
-    - name: Build Docker image
-      run: cd AxxSolder_firmware && docker build -t firmware-builder -f Containerfile .
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-    - name: Set firmware path
-      run: echo "FIRMWARE_PATH=AxxSolder-${GITHUB_REF#refs/tags/}.bin" >> $GITHUB_ENV
+    - name: Set firmware filename and version
+      env:
+        CONTROLLER: ${{ matrix.config.controller }}
+        SIZE: ${{ matrix.config.size }}
+        ROTATION: ${{ matrix.rotation }}
+      run: |
+        VERSION=${GITHUB_REF_NAME#v}
+        echo "FW_VERSION=${VERSION}" >> $GITHUB_ENV
+        echo "FIRMWARE_PATH=AxxSolder-${GITHUB_REF_NAME}-${CONTROLLER}-${SIZE}-rot${ROTATION}.bin" >> $GITHUB_ENV
 
-    - name: Run firmware build and copy artifact
+    - name: Build firmware image
+      uses: docker/build-push-action@v6
+      with:
+        context: ./AxxSolder_firmware
+        file: ./AxxSolder_firmware/Containerfile
+        build-args: |
+          LCD_CONTROLLER=${{ matrix.config.controller }}
+          LCD_SIZE=${{ matrix.config.size }}
+          LCD_ROTATION=${{ matrix.rotation }}
+          FW_VERSION=${{ env.FW_VERSION }}
+        tags: firmware-builder:latest
+        load: true
+        cache-from: type=gha,scope=${{ matrix.config.controller }}-${{ matrix.config.size }}-rot${{ matrix.rotation }}
+        cache-to: type=gha,mode=max,scope=${{ matrix.config.controller }}-${{ matrix.config.size }}-rot${{ matrix.rotation }}
+
+    - name: Extract firmware artifact
       if: startsWith(github.ref, 'refs/tags/')
       run: |
-        cd AxxSolder_firmware
         docker run --rm \
           -v ${{ github.workspace }}:/workspace \
-          -w /workspace \
-          firmware-builder \
+          firmware-builder:latest \
           cp /app/build/AxxSolder.bin /workspace/${FIRMWARE_PATH}
-    
+
     - name: Upload firmware artifact
       if: startsWith(github.ref, 'refs/tags/')
       uses: actions/upload-artifact@v7
       with:
-        name: firmware
+        name: firmware-${{ matrix.config.controller }}-${{ matrix.config.size }}-rot${{ matrix.rotation }}
         path: ${{ env.FIRMWARE_PATH }}
 
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/') #will only run on tags, never on PRs
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
 
     steps:
-    - name: Download firmware artifact
+    - name: Download all firmware artifacts
       uses: actions/download-artifact@v8
       with:
-         name: firmware
+        pattern: firmware-*
+        merge-multiple: true
+        path: ./firmware
 
     - name: Create GitHub release
       uses: softprops/action-gh-release@v3
       with:
-        files: ${{ github.workspace }}/*.bin
+        files: ./firmware/*.bin
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
